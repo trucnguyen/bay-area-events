@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bay Area Events</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text">Loading Bay Area events...</div>
+</div>
+
+<!-- Header -->
+<header>
+  <h1>Bay Area <span>Events</span></h1>
+  <div class="view-toggle">
+    <button class="view-btn active" id="btn-map">Map</button>
+    <button class="view-btn" id="btn-calendar">Calendar</button>
+  </div>
+  <div class="search-wrap">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input type="text" id="search" placeholder="Search events, venues...">
+  </div>
+  <button class="refresh-btn" id="refresh-btn" title="Refresh events">↻ Refresh</button>
+</header>
+
+<!-- Main layout -->
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Total Events</div>
+      <div class="event-count-badge">
+        <strong id="event-count">—</strong>
+        showing
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Category</div>
+      <label class="cat-filter" data-cat="concerts" style="--cat-color:var(--concerts)">
+        <input type="checkbox" checked>
+        <span>Concerts</span>
+        <span class="cat-count" id="count-concerts">0</span>
+      </label>
+      <label class="cat-filter" data-cat="performing_arts" style="--cat-color:var(--performing_arts)">
+        <input type="checkbox" checked>
+        <span>Performing Arts</span>
+        <span class="cat-count" id="count-performing_arts">0</span>
+      </label>
+      <label class="cat-filter" data-cat="museum" style="--cat-color:var(--museum)">
+        <input type="checkbox" checked>
+        <span>Museum</span>
+        <span class="cat-count" id="count-museum">0</span>
+      </label>
+      <label class="cat-filter" data-cat="film" style="--cat-color:var(--film)">
+        <input type="checkbox" checked>
+        <span>Film</span>
+        <span class="cat-count" id="count-film">0</span>
+      </label>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Date Range</div>
+      <button class="date-btn" data-range="today">Today</button>
+      <button class="date-btn active" data-range="week">This week</button>
+      <button class="date-btn" data-range="month">This month</button>
+      <button class="date-btn" data-range="all">All upcoming</button>
+      <button class="date-btn" data-range="custom">Custom range</button>
+      <div class="custom-dates hidden" id="custom-dates">
+        <input type="date" id="date-from" placeholder="From">
+        <input type="date" id="date-to" placeholder="To">
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main">
+    <!-- Map view -->
+    <div id="map-view">
+      <div id="map"></div>
+    </div>
+
+    <!-- Calendar view -->
+    <div id="calendar-view" class="hidden">
+      <div id="calendar"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Event detail modal -->
+<div class="modal-overlay hidden" id="modal-overlay">
+  <div class="modal" id="modal">
+    <button class="modal-close" id="modal-close">✕</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
