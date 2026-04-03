@@ -263,6 +263,52 @@ function getVenueUrl(slug) {
   return VENUE_URLS[slug] || VENUE_URLS[key] || null;
 }
 
+// ─── Songkick search ─────────────────────────────────────────────────────────
+const skCache = new NodeCache({ stdTTL: 86400 });
+
+async function searchSongkick(artist, venueSlug) {
+  const cacheKey = `sk:${artist}:${venueSlug}`.toLowerCase();
+  const cached = skCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const venueName = SONGKICK_VENUE_NAMES[venueSlug] || venueSlug.replace(/_/g, ' ');
+  const query = encodeURIComponent(`${artist} ${venueName}`);
+  try {
+    const html = await fetch(`https://www.songkick.com/search?query=${query}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' }
+    }).then(r => r.text());
+
+    const matches = [...html.matchAll(/href="(\/concerts\/\d+-[^"]+)"/g)].map(m => m[1]);
+    const venueWords = venueName.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+
+    let best = null;
+    for (const href of matches) {
+      if (venueWords.some(w => href.toLowerCase().includes(w))) {
+        best = `https://www.songkick.com${href}`;
+        break;
+      }
+    }
+    skCache.set(cacheKey, best);
+    return best;
+  } catch {
+    skCache.set(cacheKey, null);
+    return null;
+  }
+}
+
+async function enrichSongkickUrls(events) {
+  // Run in batches of 5 concurrent requests to avoid rate limiting
+  const BATCH = 5;
+  for (let i = 0; i < events.length; i += BATCH) {
+    await Promise.all(
+      events.slice(i, i + BATCH).map(async ev => {
+        const url = await searchSongkick(ev.title, ev.venueSlug);
+        if (url) ev.url = url;
+      })
+    );
+  }
+}
+
 // ─── TheList scraper ──────────────────────────────────────────────────────────
 // Uses regex-based parsing to handle the mixed single/double quote HTML reliably.
 async function scrapeTheList() {
@@ -401,6 +447,7 @@ async function scrapeTheList() {
   } catch (e) {
     console.error('TheList scrape error:', e.message);
   }
+  await enrichSongkickUrls(events);
   return events;
 }
 
@@ -1365,46 +1412,6 @@ const SONGKICK_VENUE_NAMES = {
   'hammer_theater_center':    'hammer theater',
 };
 
-const urlResolveCache = new NodeCache({ stdTTL: 86400 }); // cache for 24h
-
-app.get('/api/resolve-url', async (req, res) => {
-  const { artist, venue, date } = req.query;
-  if (!artist || !venue) return res.json({ url: null });
-
-  const cacheKey = `sk:${artist}:${venue}:${date || ''}`.toLowerCase();
-  const cached = urlResolveCache.get(cacheKey);
-  if (cached !== undefined) return res.json({ url: cached });
-
-  try {
-    const venueName = SONGKICK_VENUE_NAMES[venue] || venue.replace(/_/g, ' ');
-    const query = encodeURIComponent(`${artist} ${venueName}`);
-    const html = await fetch(`https://www.songkick.com/search?query=${query}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' }
-    }).then(r => r.text());
-
-    // Extract concert hrefs: /concerts/12345678-artist-at-venue
-    const matches = [...html.matchAll(/href="(\/concerts\/\d+-[^"]+)"/g)].map(m => m[1]);
-
-    // Find best match: slug should contain part of venue name
-    const venueSlugPart = venueName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
-    const venueWords = venueName.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-
-    let best = null;
-    for (const href of matches) {
-      const slug = href.toLowerCase();
-      if (venueWords.some(w => slug.includes(w))) {
-        // If date provided, try to verify it matches (skip for now, first match wins)
-        best = `https://www.songkick.com${href}`;
-        break;
-      }
-    }
-
-    urlResolveCache.set(cacheKey, best);
-    res.json({ url: best });
-  } catch (e) {
-    res.json({ url: null });
-  }
-});
 
 app.get('/api/refresh', async (req, res) => {
   cache.del('events');

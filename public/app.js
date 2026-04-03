@@ -293,22 +293,10 @@ function openModal(ev) {
       ${ev.address ? `<div class="modal-venue-addr">${escHtml(ev.address)}${ev.city ? `, ${ev.city}` : ''}</div>` : ''}
       ${ev.lat && ev.lng ? `<div class="modal-mini-map" id="modal-mini-map"></div>` : ''}
     </div>
-    <a class="modal-cta" id="modal-cta-link" href="${ev.url}" target="_blank" rel="noopener">Get tickets / more info →</a>
+    <a class="modal-cta" href="${ev.url}" target="_blank" rel="noopener">Get tickets / more info →</a>
   `;
 
   document.getElementById('modal-overlay').classList.remove('hidden');
-
-  // For TheList concerts, try to resolve a direct Songkick event page
-  if (ev.id && ev.id.startsWith('thelist-') && ev.venueSlug) {
-    fetch(`/api/resolve-url?artist=${encodeURIComponent(ev.title)}&venue=${encodeURIComponent(ev.venueSlug)}&date=${encodeURIComponent(ev.date || '')}`)
-      .then(r => r.json())
-      .then(({ url }) => {
-        if (!url) return;
-        const link = document.getElementById('modal-cta-link');
-        if (link) link.href = url;
-      })
-      .catch(() => {});
-  }
 
   if (ev.lat && ev.lng) {
     setTimeout(() => {
