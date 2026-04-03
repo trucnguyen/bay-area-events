@@ -1312,6 +1312,100 @@ app.get('/api/venues', (req, res) => {
   res.json(VENUE_COORDS);
 });
 
+// ─── Songkick URL resolver ────────────────────────────────────────────────────
+// Maps TheList venue slugs to human-readable names for Songkick search matching
+const SONGKICK_VENUE_NAMES = {
+  'fillmore':                 'fillmore',
+  'warfield':                 'warfield',
+  'independent':              'independent',
+  'great_american_music_hall':'great american music hall',
+  'chapel':                   'chapel',
+  'bottom_of_the_hill':       'bottom of the hill',
+  'brick_and_mortar':         'brick and mortar',
+  'cafe_du_nord':             'cafe du nord',
+  'swedish_american_hall':    'swedish american hall',
+  'dna_lounge':               'dna lounge',
+  'great_northern':           'great northern',
+  'august_hall':              'august hall',
+  'regency_ballroom':         'regency ballroom',
+  'masonic':                  'masonic',
+  'castro_theater':           'castro theatre',
+  'castro_theataer':          'castro theatre',
+  'rickshaw_stop':            'rickshaw stop',
+  'rickshas_stop':            'rickshaw stop',
+  'rickshaw_shop':            'rickshaw stop',
+  'make-out_room':            'make-out room',
+  'knockout':                 'knockout',
+  'thee_stork_club':          'stork club',
+  'yoshi\'s':                 'yoshis',
+  'freight':                  'freight',
+  'uc_theater':               'uc theatre',
+  'greek_theatre':            'greek theatre',
+  'fox_theater':              'fox theater oakland',
+  'fox_theataer':             'fox theater oakland',
+  'paramount_theatre':        'paramount theatre',
+  'guild_theater':            'guild theater',
+  'ivy_room':                 'ivy room',
+  'catalyst':                 'catalyst',
+  'moe\'s_alley':             'moe\'s alley',
+  'moe_s_alley':              'moe\'s alley',
+  'sweetwater_music_hall':    'sweetwater music hall',
+  'mystic_theater':           'mystic theater',
+  'cornerstone':              'cornerstone',
+  'slim_s':                   'slim\'s',
+  'independent':              'the independent',
+  'hopmonk':                  'hopmonk',
+  'hopmonk_tavern':           'hopmonk',
+  'shoreline_amphitheatre':   'shoreline amphitheatre',
+  'shoreline_ampheater':      'shoreline amphitheatre',
+  'greek_theatre':            'greek theatre berkeley',
+  'frost_amphitheater':       'frost amphitheater',
+  'mountain_winery':          'mountain winery',
+  'san_jose_civic':           'san jose civic',
+  'hammer_theater_center':    'hammer theater',
+};
+
+const urlResolveCache = new NodeCache({ stdTTL: 86400 }); // cache for 24h
+
+app.get('/api/resolve-url', async (req, res) => {
+  const { artist, venue, date } = req.query;
+  if (!artist || !venue) return res.json({ url: null });
+
+  const cacheKey = `sk:${artist}:${venue}:${date || ''}`.toLowerCase();
+  const cached = urlResolveCache.get(cacheKey);
+  if (cached !== undefined) return res.json({ url: cached });
+
+  try {
+    const venueName = SONGKICK_VENUE_NAMES[venue] || venue.replace(/_/g, ' ');
+    const query = encodeURIComponent(`${artist} ${venueName}`);
+    const html = await fetch(`https://www.songkick.com/search?query=${query}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' }
+    }).then(r => r.text());
+
+    // Extract concert hrefs: /concerts/12345678-artist-at-venue
+    const matches = [...html.matchAll(/href="(\/concerts\/\d+-[^"]+)"/g)].map(m => m[1]);
+
+    // Find best match: slug should contain part of venue name
+    const venueSlugPart = venueName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+    const venueWords = venueName.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+
+    let best = null;
+    for (const href of matches) {
+      const slug = href.toLowerCase();
+      if (venueWords.some(w => slug.includes(w))) {
+        // If date provided, try to verify it matches (skip for now, first match wins)
+        best = `https://www.songkick.com${href}`;
+        break;
+      }
+    }
+
+    urlResolveCache.set(cacheKey, best);
+    res.json({ url: best });
+  } catch (e) {
+    res.json({ url: null });
+  }
+});
+
 app.get('/api/refresh', async (req, res) => {
   cache.del('events');
   try { writeFileSync(DISK_CACHE_PATH, JSON.stringify({ ts: 0, events: [] })); } catch (_) {}
