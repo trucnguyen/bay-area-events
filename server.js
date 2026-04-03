@@ -192,6 +192,77 @@ function getVenueCoords(slug) {
   return VENUE_COORDS[key] || VENUE_COORDS[slug] || null;
 }
 
+// ─── Venue website URL map (keyed by TheList slug) ───────────────────────────
+const VENUE_URLS = {
+  'fillmore':                 'https://www.thefillmore.com/events',
+  'warfield':                 'https://www.thewarfield.com/events',
+  'independent':              'https://www.theindependentsf.com/calendar',
+  'great_american_music_hall':'https://www.gamh.com/events',
+  'chapel':                   'https://www.thechapelsf.com/calendar',
+  'bottom_of_the_hill':       'https://www.bottomofthehill.com/calendar.html',
+  'brick_and_mortar':         'https://www.brickandmortarmusic.com/events',
+  'cafe_du_nord':             'https://www.cafedunord.com/calendar',
+  'swedish_american_hall':    'https://www.cafedunord.com/calendar',
+  'dna_lounge':               'https://www.dnalounge.com/calendar/',
+  'slim_s':                   'https://www.slims.net/calendar',
+  'great_northern':           'https://www.greatnorthernsf.com/events',
+  'august_hall':              'https://www.augusthallsf.com/events',
+  'regency_ballroom':         'https://www.theregencyballroom.com/events',
+  'masonic':                  'https://www.themasonic.com/events',
+  'castro_theater':           'https://castrotheatre.com/events/',
+  'castro_theataer':          'https://castrotheatre.com/events/',
+  'golden_gate_theater':      'https://www.shnsf.com/shows',
+  'davies_symphony_hall':     'https://www.sfsymphony.org/Buy-Tickets/Calendar',
+  'palace_of_fine_arts':      'https://palaceoffinearts.org/events/',
+  'rickshaw_stop':            'https://www.rickshawstop.com/events',
+  'rickshas_stop':            'https://www.rickshawstop.com/events',
+  'rickshaw_shop':            'https://www.rickshawstop.com/events',
+  'make-out_room':            'https://www.makeoutroom.com/events',
+  'knockout':                 'https://www.theknockoutsf.com/shows',
+  'thee_stork_club':          'https://www.theestorkclub.com/events',
+  'eli_s_mile_high_club':     'https://elismilehighclub.com/events',
+  'eli\'s_mile_high_club':    'https://elismilehighclub.com/events',
+  'yoshi_s':                  'https://yoshis.com/calendar',
+  'yoshi\'s':                 'https://yoshis.com/calendar',
+  'freight':                  'https://www.freightandsalvage.org/calendar/',
+  'uc_theater':               'https://theuctheater.com/events/',
+  'greek_theatre':            'https://www.ucgreektheatre.com/events',
+  'fox_theater':              'https://www.foxoakland.com/events',
+  'fox_theataer':             'https://www.foxoakland.com/events',
+  'paramount_theatre':        'https://www.paramounttheatre.com/events',
+  'guild_theater':            'https://guildtheater.com/events',
+  'ivy_room':                 'https://ivyroomalbany.com/events',
+  'uptown_theater':           'https://www.uptownclubkc.com/events',
+  'catalyst':                 'https://www.catalystclub.com/events',
+  'catalyst_atrium':          'https://www.catalystclub.com/events',
+  'crepe_place':              'https://www.thecrepeplace.com/shows',
+  'moe_s_alley':              'https://moesalley.com/calendar/',
+  'moe\'s_alley':             'https://moesalley.com/calendar/',
+  'rio_theater':              'https://www.riotheatre.com/events',
+  'sweetwater_music_hall':    'https://www.sweetwatermusichall.com/events',
+  'mystic_theater':           'https://mystictheatre.com/events',
+  'hopmonk':                  'https://www.hopmonk.com/events',
+  'hopmonk_tavern':           'https://www.hopmonk.com/events',
+  'gray_area':                'https://grayarea.org/events/',
+  'stern_grove':              'https://www.sterngrove.org/concerts/',
+  'outside_lands':            'https://www.sfoutsidelands.com/',
+  'shoreline_amphitheatre':   'https://www.livenation.com/venue/KovZpZAE6lnA/shoreline-amphitheatre-events',
+  'shoreline_ampheater':      'https://www.livenation.com/venue/KovZpZAE6lnA/shoreline-amphitheatre-events',
+  'shoreline_amphteater':     'https://www.livenation.com/venue/KovZpZAE6lnA/shoreline-amphitheatre-events',
+  'shorline_amphitheater':    'https://www.livenation.com/venue/KovZpZAE6lnA/shoreline-amphitheatre-events',
+  'mountain_winery':          'https://www.mountainwinery.com/events',
+  'frost_amphitheater':       'https://frostamphitheater.com/events',
+  'luther_burbank_center':    'https://lutherburbankcenter.org/events/',
+  'san_jose_civic':           'https://www.sanjosecivic.com/events',
+  'san_jose_civic_center':    'https://www.sanjosecivic.com/events',
+  'hammer_theater_center':    'https://www.hammertheatre.com/events',
+};
+
+function getVenueUrl(slug) {
+  const key = slug.toLowerCase().replace(/[^a-z0-9_']/g, '_');
+  return VENUE_URLS[slug] || VENUE_URLS[key] || null;
+}
+
 // ─── TheList scraper ──────────────────────────────────────────────────────────
 // Uses regex-based parsing to handle the mixed single/double quote HTML reliably.
 async function scrapeTheList() {
@@ -322,7 +393,7 @@ async function scrapeTheList() {
         price,
         age,
         category: 'concerts',
-        url: 'https://jon.luini.com/thelist/date.html',
+        url: getVenueUrl(venueSlug) || 'https://jon.luini.com/thelist/date.html',
         lat: coords?.lat ?? null,
         lng: coords?.lng ?? null,
       });
