@@ -1,8 +1,0 @@
-[phases.install]
-cmds = ["npm install --include=prod --include=dev"]
-
-[phases.build]
-cmds = []
-
-[start]
-cmd = "node server.js"
