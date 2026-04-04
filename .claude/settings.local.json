@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(railway --version)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(brew install:*)",
+      "Bash(railway login:*)",
+      "Bash(railway whoami:*)",
+      "Bash(curl -s \"http://localhost:3000/api/resolve-url?artist=Charlie+Parr&venue=ivy_room&date=2026-04-02\")",
+      "Bash(railway up:*)"
+    ]
+  }
+}
