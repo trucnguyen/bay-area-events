@@ -297,16 +297,23 @@ async function searchSongkick(artist, venueSlug) {
 }
 
 async function enrichSongkickUrls(events) {
-  // Run in batches of 5 concurrent requests to avoid rate limiting
+  // Only enrich events that don't already have a venue-specific URL
+  const toEnrich = events.filter(ev =>
+    ev.venueSlug && ev.url === 'https://jon.luini.com/thelist/date.html'
+  );
+  if (toEnrich.length === 0) return;
+
+  console.log(`Enriching ${toEnrich.length} events with Songkick URLs...`);
   const BATCH = 5;
-  for (let i = 0; i < events.length; i += BATCH) {
+  for (let i = 0; i < toEnrich.length; i += BATCH) {
     await Promise.all(
-      events.slice(i, i + BATCH).map(async ev => {
+      toEnrich.slice(i, i + BATCH).map(async ev => {
         const url = await searchSongkick(ev.title, ev.venueSlug);
         if (url) ev.url = url;
       })
     );
   }
+  console.log('Songkick enrichment complete.');
 }
 
 // ─── TheList scraper ──────────────────────────────────────────────────────────
@@ -447,7 +454,6 @@ async function scrapeTheList() {
   } catch (e) {
     console.error('TheList scrape error:', e.message);
   }
-  await enrichSongkickUrls(events);
   return events;
 }
 
@@ -1353,6 +1359,13 @@ app.get('/api/events/stream', async (req, res) => {
   console.log(`Fetched ${allEvents.length} events total`);
   send('done', { total: allEvents.length });
   res.end();
+
+  // Background: enrich TheList events with Songkick URLs, then update cache
+  const theListEvents = allEvents.filter(e => e.id.startsWith('thelist-'));
+  enrichSongkickUrls(theListEvents).then(() => {
+    cache.set('events', allEvents);
+    saveDiskCache(allEvents);
+  }).catch(() => {});
 });
 
 app.get('/api/venues', (req, res) => {
