@@ -1368,6 +1368,8 @@ app.get('/api/events/stream', async (req, res) => {
   }).catch(() => {});
 });
 
+app.get('/health', (req, res) => res.json({ ok: true }));
+
 app.get('/api/venues', (req, res) => {
   res.json(VENUE_COORDS);
 });
