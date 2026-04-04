@@ -1,3 +1,3 @@
-node_modules/
+# node_modules intentionally committed for Railway deployment
 cache.json
 .env

@@ -9,7 +9,18 @@
       "Bash(railway login:*)",
       "Bash(railway whoami:*)",
       "Bash(curl -s \"http://localhost:3000/api/resolve-url?artist=Charlie+Parr&venue=ivy_room&date=2026-04-02\")",
-      "Bash(railway up:*)"
+      "Bash(railway up:*)",
+      "Bash(curl -sL \"https://theestorkclub.com\" -A \"Mozilla/5.0\" -o /dev/null -w \"%{http_code} %{url_effective}\\\\n\")",
+      "Bash(curl -sL \"https://www.themasonic.com\" -A \"Mozilla/5.0\" -o /dev/null -w \"%{http_code} %{url_effective}\\\\n\")",
+      "Bash(curl -sL \"https://castrotheatre.com\" -A \"Mozilla/5.0\" -o /dev/null -w \"%{http_code} %{url_effective}\\\\n\")",
+      "Bash(curl -sL \"https://theknockoutsf.com\" -A \"Mozilla/5.0\" -o /dev/null -w \"%{http_code} %{url_effective}\\\\n\")",
+      "Bash(curl -sL \"https://rickshawstop.com\" -A \"Mozilla/5.0\" -o /dev/null -w \"%{http_code} %{url_effective}\\\\n\")",
+      "Bash(curl -sL \"https://theestorkclub.com\" -A \"Mozilla/5.0\")",
+      "Bash(curl -sL \"https://thecastro.com\" -A \"Mozilla/5.0\")",
+      "Bash(curl -sL \"https://theknockoutsf.com\" -A \"Mozilla/5.0\")",
+      "Bash(curl -sL \"https://rickshawstop.com\" -A \"Mozilla/5.0\")",
+      "Bash(curl -sL \"https://www.makeoutroom.com\" -A \"Mozilla/5.0\" -o /dev/null -w \"%{http_code} %{url_effective}\\\\n\")",
+      "Bash(curl -sL \"https://makeoutroom.com\" -A \"Mozilla/5.0\" -o /dev/null -w \"%{http_code} %{url_effective}\\\\n\")"
     ]
   }
 }
