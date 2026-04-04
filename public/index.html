@@ -9,14 +9,21 @@
 </head>
 <body>
 
-<!-- Loading overlay -->
-<div class="loading-overlay" id="loading">
-  <div class="spinner"></div>
-  <div class="loading-text">Loading Bay Area events...</div>
+<!-- Non-blocking loading bar (sits above header) -->
+<div class="loading-bar" id="loading">
+  <div class="loading-bar-track">
+    <div class="loading-bar-fill" id="loading-fill"></div>
+  </div>
+  <span class="loading-bar-text" id="loading-text">Loading events...</span>
 </div>
 
 <!-- Header -->
 <header>
+  <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle filters">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  </button>
   <h1>Bay Area <span>Events</span></h1>
   <div class="view-toggle">
     <button class="view-btn active" id="btn-map">Map</button>
@@ -93,14 +100,12 @@
       <div id="calendar"></div>
     </div>
   </main>
-</div>
 
-<!-- Event detail modal -->
-<div class="modal-overlay hidden" id="modal-overlay">
-  <div class="modal" id="modal">
-    <button class="modal-close" id="modal-close">✕</button>
-    <div id="modal-content"></div>
-  </div>
+  <!-- Event detail side panel -->
+  <aside class="detail-panel hidden" id="detail-panel">
+    <button class="detail-close" id="detail-close">✕</button>
+    <div id="detail-content"></div>
+  </aside>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

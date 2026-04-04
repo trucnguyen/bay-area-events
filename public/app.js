@@ -73,16 +73,21 @@ function makeIcon(category) {
 // Markers are reused across filter changes — only add/remove from cluster layer
 const markerPool = new Map(); // key: `${lat},${lng}` → { marker, events[] }
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function isMobile() { return window.innerWidth <= 640; }
+
 // ── Calendar setup ───────────────────────────────────────────────────────────
 function initCalendar() {
+  const mobile = isMobile();
   calendarInstance = new FullCalendar.Calendar(document.getElementById('calendar'), {
-    initialView: 'dayGridMonth',
-    headerToolbar: {
-      left: 'prev,next today',
-      center: 'title',
-      right: 'dayGridMonth,timeGridWeek,listWeek',
-    },
-    height: '100%',
+    initialView: mobile ? 'listWeek' : 'dayGridMonth',
+    headerToolbar: mobile
+      ? { left: 'prev,next', center: 'title', right: 'listWeek,dayGridMonth' }
+      : { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listWeek' },
+    height: mobile ? 'auto' : '100%',
+    scrollTime: '14:00:00',
+    slotMinTime: '10:00:00',
+    slotMaxTime: '02:00:00', // next day 2am
     lazyFetching: true,
     eventDidMount: (arg) => {
       if (!arg.view.type.startsWith('list')) return;
@@ -116,43 +121,43 @@ function initCalendar() {
     },
     eventClick: (info) => {
       const ev = allEvents.find(e => e.id === info.event.id);
-      if (ev) openModal(ev);
+      if (ev) openDetail(ev);
     },
   });
   calendarInstance.render();
 }
 
 // ── Filtering ────────────────────────────────────────────────────────────────
-function filterEvents() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const endOfWeek = new Date(today); endOfWeek.setDate(today.getDate() + 7);
-  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  const searchLower = state.search.toLowerCase();
+// Base filter: category + search (shared by map and calendar)
+function baseFilter(ev) {
+  if (!state.categories.has(ev.category)) return false;
+  if (state.search) {
+    const haystack = [ev.title, ...(ev.artists || []), ev.venue, ev.city]
+      .join(' ').toLowerCase();
+    if (!haystack.includes(state.search.toLowerCase())) return false;
+  }
+  return true;
+}
 
-  filteredEvents = allEvents.filter(ev => {
-    if (!state.categories.has(ev.category)) return false;
-
-    if (searchLower) {
-      const haystack = [ev.title, ...(ev.artists || []), ev.venue, ev.city]
-        .join(' ').toLowerCase();
-      if (!haystack.includes(searchLower)) return false;
-    }
-
-    if (ev.date) {
-      const d = new Date(ev.date + 'T00:00:00');
-      if (state.dateRange === 'today')  return d.toDateString() === today.toDateString();
-      if (state.dateRange === 'week')   return d >= today && d <= endOfWeek;
-      if (state.dateRange === 'month')  return d >= today && d <= endOfMonth;
-      if (state.dateRange === 'custom') {
-        if (state.dateFrom && d < new Date(state.dateFrom)) return false;
-        if (state.dateTo && d > new Date(state.dateTo + 'T23:59:59')) return false;
-      } else {
-        if (d < today) return false; // 'all' = upcoming only
-      }
-    }
+// Date filter: only applied to map view; calendar handles its own date range
+function dateFilter(ev) {
+  if (!ev.date) return true;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(ev.date + 'T00:00:00');
+  if (state.dateRange === 'today')  return d.toDateString() === today.toDateString();
+  if (state.dateRange === 'week')   { const end = new Date(today); end.setDate(today.getDate() + 7); return d >= today && d <= end; }
+  if (state.dateRange === 'month')  { const end = new Date(today.getFullYear(), today.getMonth() + 1, 0); return d >= today && d <= end; }
+  if (state.dateRange === 'custom') {
+    if (state.dateFrom && d < new Date(state.dateFrom)) return false;
+    if (state.dateTo && d > new Date(state.dateTo + 'T23:59:59')) return false;
     return true;
-  });
+  }
+  return d >= today; // 'all' = upcoming only
+}
+
+function filterEvents() {
+  // filteredEvents = date-scoped set (for map + counts)
+  filteredEvents = allEvents.filter(ev => baseFilter(ev) && dateFilter(ev));
 
   updateCounts();
   document.getElementById('event-count').textContent = filteredEvents.length;
@@ -160,7 +165,8 @@ function filterEvents() {
 }
 
 // ── Debounced render scheduler ────────────────────────────────────────────────
-// Only renders the active view, and defers via requestAnimationFrame
+// Renders the active view immediately; also keeps the calendar in sync so
+// switching views doesn't flash stale data.
 let renderPending = false;
 function scheduleRender() {
   if (renderPending) return;
@@ -168,7 +174,8 @@ function scheduleRender() {
   requestAnimationFrame(() => {
     renderPending = false;
     if (currentView === 'map') renderMap();
-    else renderCalendar();
+    // Always sync calendar events if it exists (cheap due to filterKey guard)
+    if (calendarInstance) renderCalendar();
   });
 }
 
@@ -202,21 +209,22 @@ function renderMap() {
     }
   }
 
-  // Add new markers; update popup for existing ones whose event group changed
+  // Add new markers; update stored group for existing ones
   const toAdd = [];
   for (const [key, group] of desired) {
     const ev = group[0];
     if (markerPool.has(key)) {
-      // Update popup content if group changed
       const entry = markerPool.get(key);
-      if (entry.count !== group.length) {
-        entry.marker.setPopupContent(buildPopup(group));
-        entry.count = group.length;
-      }
+      entry.events = group;
+      entry.count = group.length;
     } else {
       const marker = L.marker([ev.lat, ev.lng], { icon: makeIcon(ev.category) });
-      marker.bindPopup(buildPopup(group), { maxWidth: 300 });
-      markerPool.set(key, { marker, count: group.length });
+      const poolKey = key; // capture for closure
+      marker.on('click', () => {
+        const entry = markerPool.get(poolKey);
+        if (entry && entry.events.length) openDetail(entry.events[0]);
+      });
+      markerPool.set(key, { marker, events: group, count: group.length });
       toAdd.push(marker);
     }
   }
@@ -224,40 +232,26 @@ function renderMap() {
   if (toAdd.length > 0) clusterLayer.addLayers(toAdd);
 }
 
-function buildPopup(group) {
-  const ev = group[0];
-  const color = CAT_COLORS[ev.category] || '#888';
-  const artistList = (ev.artists || []).slice(0, 4).join(', ');
-  const timeStr = ev.show ? `${ev.doors} / ${ev.show}` : ev.doors || '';
-  const meta = [
-    ev.date  ? `📅 ${formatDate(ev.date)}` : '',
-    timeStr  ? `🕐 ${timeStr}` : '',
-    ev.price ? `💵 ${ev.price}` : '',
-    ev.age && ev.age !== 'all ages' ? ev.age : '',
-  ].filter(Boolean).map(t => `<span class="popup-tag">${t}</span>`).join('');
-  const extra = group.length > 1
-    ? `<div style="color:var(--text-muted);font-size:11px;margin-top:4px">+${group.length - 1} more event${group.length > 2 ? 's' : ''} this day</div>`
-    : '';
-  return `<div class="popup-inner">
-    <div class="popup-category" style="color:${color}">${CAT_EMOJI[ev.category] || ''} ${ev.category}</div>
-    <div class="popup-title">${escHtml(ev.title)}</div>
-    ${artistList ? `<div class="popup-artists">${escHtml(artistList)}</div>` : ''}
-    <div class="popup-meta">${meta}</div>
-    <div class="popup-venue">📍 ${escHtml(ev.venue)}${ev.city ? `, ${ev.city}` : ''}</div>
-    ${extra}
-    <a class="popup-link" href="${ev.url}" target="_blank" rel="noopener">More info →</a>
-  </div>`;
-}
+// (popups removed — markers open the detail side panel directly)
 
 // ── Calendar rendering ────────────────────────────────────────────────────────
-// Batched via addEventSource for large sets; only rebuilds when view is active
+// Uses base filter only (category + search) — FullCalendar manages its own dates.
+// Tracks the last filter signature to avoid unnecessary removeAll/addAll cycles.
+let lastCalendarFilterKey = '';
+
 function renderCalendar() {
   if (!calendarInstance) return;
+
+  // Only events matching category + search (no date restriction)
+  const calendarEvents = allEvents.filter(ev => ev.date && baseFilter(ev));
+  const filterKey = state.categories.size + '|' + state.search + '|' + calendarEvents.length;
+
+  if (filterKey === lastCalendarFilterKey) return; // nothing changed
+  lastCalendarFilterKey = filterKey;
+
   calendarInstance.removeAllEvents();
-  // Batch add up to 500 events (calendar becomes slow beyond that)
-  const eventsToShow = filteredEvents.filter(e => e.date).slice(0, 500);
   calendarInstance.addEventSource(
-    eventsToShow.map(ev => ({
+    calendarEvents.slice(0, 500).map(ev => ({
       id: ev.id,
       title: ev.title,
       start: ev.date + (ev.show ? `T${to24h(ev.show)}` : ev.doors ? `T${to24h(ev.doors)}` : ''),
@@ -269,54 +263,104 @@ function renderCalendar() {
   );
 }
 
-// ── Modal ─────────────────────────────────────────────────────────────────────
-function openModal(ev) {
+// ── Venue grouping ───────────────────────────────────────────────────────────
+// Single source of truth: given an event, find all other filtered events at the
+// same venue. Used by both map marker clicks and calendar event clicks.
+function getVenueGroup(ev) {
+  if (!ev.venue) return [ev];
+  const others = filteredEvents.filter(e => e.venue === ev.venue && e !== ev);
+  return [ev, ...others];
+}
+
+// ── Detail side panel ─────────────────────────────────────────────────────────
+function openDetail(ev) {
+  const group = getVenueGroup(ev);
+  showEventInPanel(ev, group);
+}
+
+function showEventInPanel(ev, group) {
+  const panel = document.getElementById('detail-panel');
   const color = CAT_COLORS[ev.category] || '#888';
   const timeStr = ev.show
     ? `Doors ${ev.doors} / Show ${ev.show}`
     : ev.doors ? `Doors ${ev.doors}` : '—';
   const artistChips = (ev.artists || [])
-    .map(a => `<span class="modal-artist-chip">${escHtml(a)}</span>`).join('');
+    .map(a => `<span class="detail-artist-chip">${escHtml(a)}</span>`).join('');
 
-  document.getElementById('modal-content').innerHTML = `
-    <div class="modal-category" style="color:${color}">${CAT_EMOJI[ev.category] || ''} ${ev.category}</div>
-    <div class="modal-title">${escHtml(ev.title)}</div>
-    ${artistChips ? `<div class="modal-artists">${artistChips}</div>` : ''}
-    <div class="modal-info-grid">
-      <div class="modal-info-item"><div class="modal-info-label">Date</div><div class="modal-info-value">${ev.date ? formatDate(ev.date) : '—'}</div></div>
-      <div class="modal-info-item"><div class="modal-info-label">Time</div><div class="modal-info-value">${timeStr}</div></div>
-      <div class="modal-info-item"><div class="modal-info-label">Price</div><div class="modal-info-value">${ev.price || '—'}</div></div>
-      <div class="modal-info-item"><div class="modal-info-label">Age</div><div class="modal-info-value">${ev.age || '—'}</div></div>
+  // Build list of other events at this location
+  const others = group.filter(e => e !== ev);
+  const othersHtml = others.length > 0 ? `
+    <div class="detail-extra-events">
+      <div class="detail-extra-title">More events here (${others.length})</div>
+      ${others.map(o => `
+        <div class="detail-extra-item" data-event-id="${o.id}">
+          <div class="detail-extra-item-title">${escHtml(o.title)}</div>
+          <div class="detail-extra-item-meta">${o.date ? formatDate(o.date) : ''}${o.price ? ' · ' + o.price : ''}</div>
+        </div>
+      `).join('')}
     </div>
-    <div class="modal-venue-box">
-      <div class="modal-venue-name">📍 ${escHtml(ev.venue)}</div>
-      ${ev.address ? `<div class="modal-venue-addr">${escHtml(ev.address)}${ev.city ? `, ${ev.city}` : ''}</div>` : ''}
-      ${ev.lat && ev.lng ? `<div class="modal-mini-map" id="modal-mini-map"></div>` : ''}
+  ` : '';
+
+  document.getElementById('detail-content').innerHTML = `
+    <div class="detail-category" style="color:${color}">${CAT_EMOJI[ev.category] || ''} ${ev.category}</div>
+    <div class="detail-title">${escHtml(ev.title)}</div>
+    ${artistChips ? `<div class="detail-artists">${artistChips}</div>` : ''}
+    <div class="detail-info-grid">
+      <div class="detail-info-item"><div class="detail-info-label">Date</div><div class="detail-info-value">${ev.date ? formatDate(ev.date) : '—'}</div></div>
+      <div class="detail-info-item"><div class="detail-info-label">Time</div><div class="detail-info-value">${timeStr}</div></div>
+      <div class="detail-info-item"><div class="detail-info-label">Price</div><div class="detail-info-value">${ev.price || '—'}</div></div>
+      <div class="detail-info-item"><div class="detail-info-label">Age</div><div class="detail-info-value">${ev.age || '—'}</div></div>
     </div>
-    <a class="modal-cta" href="${ev.url}" target="_blank" rel="noopener">Get tickets / more info →</a>
+    <div class="detail-venue-box">
+      <div class="detail-venue-name">📍 ${escHtml(ev.venue)}</div>
+      ${ev.address ? `<div class="detail-venue-addr">${escHtml(ev.address)}${ev.city ? `, ${ev.city}` : ''}</div>` : ''}
+      ${ev.lat && ev.lng ? `<div class="detail-mini-map" id="detail-mini-map"></div>` : ''}
+    </div>
+    <a class="detail-cta" href="${ev.url}" target="_blank" rel="noopener">Get tickets / more info →</a>
+    ${othersHtml}
   `;
 
-  document.getElementById('modal-overlay').classList.remove('hidden');
-
-  if (ev.lat && ev.lng) {
-    setTimeout(() => {
-      const container = document.getElementById('modal-mini-map');
-      if (!container) return;
-      if (miniMap) { miniMap.remove(); miniMap = null; }
-      miniMap = L.map(container, {
-        center: [ev.lat, ev.lng], zoom: 15,
-        zoomControl: false, attributionControl: false,
-        dragging: false, scrollWheelZoom: false,
-      });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(miniMap);
-      L.marker([ev.lat, ev.lng]).addTo(miniMap);
-    }, 50);
-  }
+  panel.classList.remove('hidden');
+  // Let the transition finish, then resize map and init mini-map
+  setTimeout(() => {
+    map.invalidateSize();
+    initDetailMiniMap(ev);
+    wireExtraItems(group);
+    // On mobile, scroll the detail panel into view
+    if (isMobile()) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 280);
 }
 
-function closeModal() {
-  document.getElementById('modal-overlay').classList.add('hidden');
+function initDetailMiniMap(ev) {
   if (miniMap) { miniMap.remove(); miniMap = null; }
+  if (!ev.lat || !ev.lng) return;
+  const container = document.getElementById('detail-mini-map');
+  if (!container) return;
+  miniMap = L.map(container, {
+    center: [ev.lat, ev.lng], zoom: 15,
+    zoomControl: false, attributionControl: false,
+    dragging: false, scrollWheelZoom: false,
+  });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(miniMap);
+  L.marker([ev.lat, ev.lng]).addTo(miniMap);
+}
+
+function wireExtraItems(group) {
+  document.querySelectorAll('.detail-extra-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const ev = group.find(e => e.id === el.dataset.eventId);
+      if (ev) {
+        document.getElementById('detail-panel').scrollTop = 0;
+        showEventInPanel(ev, group);
+      }
+    });
+  });
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.add('hidden');
+  if (miniMap) { miniMap.remove(); miniMap = null; }
+  setTimeout(() => map.invalidateSize(), 280);
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -336,13 +380,38 @@ function to24h(t) {
   return `${String(h).padStart(2,'0')}:${min}:00`;
 }
 
-// ── Loading status bar ────────────────────────────────────────────────────────
+// ── Loading progress bar ─────────────────────────────────────────────────────
+const TOTAL_SOURCES = 11; // number of scraper sources on server
+let loadedSources = 0;
+
 function setLoadingStatus(text, done = false) {
-  const el = document.querySelector('.loading-text');
-  if (el) el.textContent = text;
+  const bar = document.getElementById('loading');
+  const fill = document.getElementById('loading-fill');
+  const textEl = document.getElementById('loading-text');
+
+  if (textEl) textEl.textContent = text;
+
   if (done) {
-    setTimeout(() => document.getElementById('loading').classList.add('hidden'), 400);
+    if (fill) { fill.classList.remove('indeterminate'); fill.style.width = '100%'; }
+    setTimeout(() => {
+      bar.classList.add('hidden');
+      document.body.classList.add('loaded');
+    }, 600);
+  } else if (fill) {
+    fill.classList.remove('indeterminate');
+    const pct = Math.min(95, Math.round((loadedSources / TOTAL_SOURCES) * 100));
+    fill.style.width = pct + '%';
   }
+}
+
+function showIndeterminate(text) {
+  const bar = document.getElementById('loading');
+  const fill = document.getElementById('loading-fill');
+  const textEl = document.getElementById('loading-text');
+  bar.classList.remove('hidden');
+  document.body.classList.remove('loaded');
+  if (fill) { fill.style.width = ''; fill.classList.add('indeterminate'); }
+  if (textEl) textEl.textContent = text || 'Loading events...';
 }
 
 // ── Event wiring ──────────────────────────────────────────────────────────────
@@ -363,8 +432,10 @@ document.getElementById('btn-calendar').addEventListener('click', () => {
   document.getElementById('calendar-view').classList.remove('hidden');
   document.getElementById('map-view').classList.add('hidden');
   if (!calendarInstance) initCalendar();
-  else calendarInstance.render();
+  // Force a fresh render since the container was hidden
+  lastCalendarFilterKey = '';
   renderCalendar();
+  calendarInstance.updateSize();
 });
 
 let searchTimer;
@@ -398,23 +469,29 @@ document.querySelectorAll('.date-btn').forEach(btn => {
 document.getElementById('date-from').addEventListener('change', (e) => { state.dateFrom = e.target.value; filterEvents(); });
 document.getElementById('date-to').addEventListener('change',   (e) => { state.dateTo   = e.target.value; filterEvents(); });
 
-document.getElementById('modal-close').addEventListener('click', closeModal);
-document.getElementById('modal-overlay').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('modal-overlay')) closeModal();
+document.getElementById('detail-close').addEventListener('click', closeDetail);
+
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+  document.querySelector('.sidebar').classList.toggle('collapsed');
+  setTimeout(() => map.invalidateSize(), 280);
 });
 
 document.getElementById('refresh-btn').addEventListener('click', async () => {
-  document.getElementById('loading').classList.remove('hidden');
-  setLoadingStatus('Refreshing events...');
+  showIndeterminate('Refreshing events...');
   allEvents = [];
+  filteredEvents = [];
   markerPool.clear();
   clusterLayer.clearLayers();
+  document.getElementById('event-count').textContent = '0';
+  updateCounts();
   await fetch('/api/refresh');
   await loadEvents();
 });
 
 // ── Data loading ──────────────────────────────────────────────────────────────
 async function loadEvents() {
+  loadedSources = 0;
+
   // Check if data is already cached on server
   const check = await fetch('/api/events');
   if (check.ok) {
@@ -429,7 +506,7 @@ async function loadEvents() {
   }
 
   // No cache — stream events source by source via SSE
-  setLoadingStatus('Loading concerts...');
+  showIndeterminate('Connecting to event sources...');
   await streamEvents();
 }
 
@@ -445,20 +522,24 @@ function streamEvents() {
         setLoadingStatus('', true);
         return;
       }
+      loadedSources++;
       allEvents.push(...events);
-      setLoadingStatus(`Loading… (${allEvents.length} events so far)`);
-      // Immediately apply filters and render new events
+      setLoadingStatus(`${label || source} loaded (${allEvents.length} events)`);
       filterEvents();
     });
 
     es.addEventListener('error', (e) => {
-      const { source, message } = JSON.parse(e.data || '{}');
-      console.warn(`Source ${source} failed:`, message);
+      try {
+        const { source, message } = JSON.parse(e.data || '{}');
+        console.warn(`Source ${source} failed:`, message);
+        loadedSources++;
+        setLoadingStatus(`${loadedSources} of ${TOTAL_SOURCES} sources loaded`);
+      } catch (_) {}
     });
 
     es.addEventListener('done', (e) => {
       const { total } = JSON.parse(e.data);
-      setLoadingStatus('', true);
+      setLoadingStatus(`${total} events loaded`, true);
       es.close();
       resolve();
     });
