@@ -5,7 +5,7 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
+    "start": "npm install --include=prod && node server.js",
     "dev": "node --watch server.js"
   },
   "engines": {
