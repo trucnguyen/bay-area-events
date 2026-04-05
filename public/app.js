@@ -87,7 +87,7 @@ function initCalendar() {
     height: mobile ? 'auto' : '100%',
     scrollTime: '14:00:00',
     slotMinTime: '10:00:00',
-    slotMaxTime: '02:00:00', // next day 2am
+    slotMaxTime: '26:00:00', // next day 2am (24+2)
     lazyFetching: true,
     eventDidMount: (arg) => {
       if (!arg.view.type.startsWith('list')) return;
@@ -446,10 +446,9 @@ document.getElementById('search').addEventListener('input', (e) => {
 });
 
 document.querySelectorAll('.cat-filter').forEach(label => {
-  label.addEventListener('click', () => {
+  const cb = label.querySelector('input[type=checkbox]');
+  cb.addEventListener('change', () => {
     const cat = label.dataset.cat;
-    const cb = label.querySelector('input[type=checkbox]');
-    cb.checked = !cb.checked;
     cb.checked ? state.categories.add(cat) : state.categories.delete(cat);
     label.classList.toggle('disabled', !cb.checked);
     filterEvents();
@@ -472,8 +471,19 @@ document.getElementById('date-to').addEventListener('change',   (e) => { state.d
 document.getElementById('detail-close').addEventListener('click', closeDetail);
 
 document.getElementById('sidebar-toggle').addEventListener('click', () => {
-  document.querySelector('.sidebar').classList.toggle('collapsed');
-  setTimeout(() => map.invalidateSize(), 280);
+  const sidebar = document.querySelector('.sidebar');
+  if (isMobile()) {
+    const open = sidebar.classList.toggle('mobile-open');
+    document.getElementById('mobile-backdrop').classList.toggle('visible', open);
+  } else {
+    sidebar.classList.toggle('collapsed');
+    setTimeout(() => map.invalidateSize(), 280);
+  }
+});
+
+document.getElementById('mobile-backdrop').addEventListener('click', () => {
+  document.querySelector('.sidebar').classList.remove('mobile-open');
+  document.getElementById('mobile-backdrop').classList.remove('visible');
 });
 
 document.getElementById('refresh-btn').addEventListener('click', async () => {

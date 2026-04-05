@@ -177,9 +177,9 @@ header h1 span { color: var(--accent); }
 .cat-filter {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 6px;
   padding: 5px 4px;
-  border-radius: 7px;
+  border-radius: 4px;
   cursor: pointer;
   user-select: none;
 }
@@ -222,9 +222,11 @@ header h1 span { color: var(--accent); }
 .cat-dot { display: none; }
 
 .cat-filter span {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text);
   flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .cat-filter.disabled > span {
@@ -233,11 +235,15 @@ header h1 span { color: var(--accent); }
 }
 
 .cat-count {
-  font-size: 11px;
+  font-size: 8px;
   color: var(--text-muted);
   background: var(--surface2);
-  padding: 1px 6px;
-  border-radius: 10px;
+  padding: 0px 2px;
+  border-radius: 4px;
+  min-width: 0;
+  flex-shrink: 0;
+  max-width: 2em;
+  text-align: right;
 }
 
 .cat-filter.disabled .cat-count { opacity: 0.5; }
@@ -617,9 +623,49 @@ header h1 span { color: var(--accent); }
   .refresh-btn { padding: 5px 8px; font-size: 11px; }
   .view-btn { padding: 4px 10px; font-size: 12px; }
 
-  /* ── Hide left sidebar, show toggle as filter drawer trigger ── */
-  .sidebar { display: none; }
-  .sidebar-toggle { display: none; }
+  /* ── Mobile filter drawer ── */
+  .sidebar-toggle { display: flex; }
+
+  .sidebar {
+    display: none;
+    position: fixed;
+    top: 72px; /* header (44px) + loading bar (28px) */
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: auto;
+    max-height: 70vh;
+    overflow-y: auto;
+    z-index: 500;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    padding: 12px 16px;
+    transition: none;
+  }
+
+  body.loaded .sidebar {
+    top: 44px;
+  }
+
+  .sidebar.mobile-open {
+    display: block;
+    width: 100%;
+    padding: 12px 16px;
+    opacity: 1;
+  }
+
+  .mobile-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 499;
+  }
+
+  .mobile-backdrop.visible {
+    display: block;
+  }
 
   /* ── Layout: switch to vertical stacking, allow scroll ── */
   .layout {

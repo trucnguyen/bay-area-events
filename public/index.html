@@ -38,6 +38,9 @@
   <button class="refresh-btn" id="refresh-btn" title="Refresh events">↻ Refresh</button>
 </header>
 
+<!-- Backdrop for mobile filter drawer -->
+<div class="mobile-backdrop" id="mobile-backdrop"></div>
+
 <!-- Main layout -->
 <div class="layout">
   <!-- Sidebar -->
@@ -54,22 +57,22 @@
       <div class="sidebar-label">Category</div>
       <label class="cat-filter" data-cat="concerts" style="--cat-color:var(--concerts)">
         <input type="checkbox" checked>
-        <span>Concerts</span>
+        <span>🎸 Concerts</span>
         <span class="cat-count" id="count-concerts">0</span>
       </label>
       <label class="cat-filter" data-cat="performing_arts" style="--cat-color:var(--performing_arts)">
         <input type="checkbox" checked>
-        <span>Performing Arts</span>
+        <span>🎭 Performing Arts</span>
         <span class="cat-count" id="count-performing_arts">0</span>
       </label>
       <label class="cat-filter" data-cat="museum" style="--cat-color:var(--museum)">
         <input type="checkbox" checked>
-        <span>Museum</span>
+        <span>🏛 Museum</span>
         <span class="cat-count" id="count-museum">0</span>
       </label>
       <label class="cat-filter" data-cat="film" style="--cat-color:var(--film)">
         <input type="checkbox" checked>
-        <span>Film</span>
+        <span>🎞 Film</span>
         <span class="cat-count" id="count-film">0</span>
       </label>
     </div>
