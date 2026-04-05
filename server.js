@@ -6,6 +6,7 @@ import NodeCache from 'node-cache';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { execSync } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -165,6 +166,9 @@ const ARTS_VENUE_COORDS = {
   'Asian Art Museum':   { lat: 37.7806, lng: -122.4162, address: '200 Larkin St', city: 'SF' },
   'Oakland Museum':     { lat: 37.7986, lng: -122.2643, address: '1000 Oak St', city: 'Oakland' },
   'YBCA':               { lat: 37.7849, lng: -122.4025, address: '701 Mission St', city: 'SF' },
+  'Orpheum Theatre':    { lat: 37.7793, lng: -122.4137, address: '1192 Market St', city: 'SF' },
+  'Golden Gate Theatre': { lat: 37.7820, lng: -122.4108, address: '1 Taylor St', city: 'SF' },
+  'Curran Theatre':     { lat: 37.7866, lng: -122.4104, address: '445 Geary St', city: 'SF' },
 };
 
 // Nominatim geocode cache (in-memory, persists for server lifetime)
@@ -499,34 +503,323 @@ function scrapeArtsPage($, selectors, baseUrl, defaults) {
 }
 
 // ─── SF Ballet scraper ────────────────────────────────────────────────────────
-// sfballet.org is a JS-rendered Cloudflare app — returns empty HTML.
-// Return a static list of known 2025-26 season productions with known dates.
+// Fetches sfballet.org/calendar/ monthly pages and extracts performance data
+// from the server-rendered HTML (WordPress + Elementor production_calendar widget).
 async function scrapeSFBallet() {
   const coords = ARTS_VENUE_COORDS['SF Ballet'];
-  // Known 2025-26 season (from sfballet.org public calendar)
-  const productions = [
-    { title: 'Whipped Cream', dates: ['2026-04-17','2026-04-19','2026-04-22','2026-04-25'] },
-    { title: 'The Rite of Spring / Mere Mortals / Untitled', dates: ['2026-05-01','2026-05-03','2026-05-06','2026-05-08'] },
-    { title: 'La Sylphide / Program 5', dates: ['2026-05-15','2026-05-17','2026-05-20','2026-05-22'] },
-  ];
   const events = [];
-  for (const prod of productions) {
-    for (const date of prod.dates) {
-      events.push({
-        id: `sfballet-${date}-${prod.title.slice(0,20).replace(/\W/g,'_')}`,
-        title: prod.title,
-        artists: [],
-        venue: 'War Memorial Opera House',
-        address: coords.address,
-        city: coords.city,
-        date,
-        doors: '', show: '7:30pm', price: 'from $35', age: 'all ages',
-        category: 'performing_arts',
-        url: 'https://www.sfballet.org/season/',
-        lat: coords.lat,
-        lng: coords.lng,
-      });
+  const seen = new Set();
+  const now = new Date();
+  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
+
+  // Month names for URL construction
+  const MONTHS = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+
+  // Fetch current month + next 2 months
+  const monthsToFetch = [];
+  for (let i = 0; i < 3; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    monthsToFetch.push({ year: d.getFullYear(), month: MONTHS[d.getMonth()] });
+  }
+
+  // Non-performance items to skip
+  const SKIP_TITLES = ['premium', 'voucher', 'gift card', 'opera house tour',
+                       'meet the artist', 'dance-along', 'chamber music series'];
+
+  for (const { year, month } of monthsToFetch) {
+    try {
+      const url = `https://www.sfballet.org/calendar/${year}/${month}/`;
+      const html = await fetch(url, { headers: { 'User-Agent': UA } }).then(r => r.text());
+
+      // Split by event-card boundaries
+      const blocks = html.split('event-card grid');
+      for (const block of blocks.slice(1)) {
+        // Mobile date format: "Month Day - Time"
+        const dateMatch = block.match(/block lg:hidden[^>]*>\s*(\w+ \d+)\s*-\s*(\d+:\d+\s*[AP]M)/);
+        if (!dateMatch) continue;
+
+        // Production link + title
+        const linkMatch = block.match(/<a href="((?:https:\/\/www\.sfballet\.org)?\/productions\/[^"]+)">([^<]+)<\/a>/);
+        if (!linkMatch) continue;
+
+        const rawDate = dateMatch[1]; // e.g. "April 10"
+        const rawTime = dateMatch[2]; // e.g. "8:00 PM"
+        const title = linkMatch[2].replace(/&amp;/g, '&').replace(/&#039;/g, "'").trim();
+        let eventUrl = linkMatch[1];
+        if (eventUrl.startsWith('/')) eventUrl = 'https://www.sfballet.org' + eventUrl;
+
+        // Skip non-performance items
+        if (SKIP_TITLES.some(s => title.toLowerCase().includes(s))) continue;
+
+        // Parse date: "April 10" → "2026-04-10"
+        const parsed = new Date(`${rawDate}, ${year}`);
+        if (isNaN(parsed)) continue;
+        // If parsed date is in the past month range, it might belong to previous year context — skip
+        if (parsed < new Date(now.getFullYear(), now.getMonth(), 1)) continue;
+
+        const isoDate = parsed.toISOString().split('T')[0];
+        const showTime = rawTime.replace(/\s+/g, '').toLowerCase();
+
+        // Deduplicate by date+time+title
+        const dedupKey = `${isoDate}-${showTime}-${title}`;
+        if (seen.has(dedupKey)) continue;
+        seen.add(dedupKey);
+
+        events.push({
+          id: `sfballet-${isoDate}-${showTime}-${title.slice(0,20).replace(/\W/g,'_')}`,
+          title,
+          artists: [],
+          venue: 'War Memorial Opera House',
+          address: coords.address,
+          city: coords.city,
+          date: isoDate,
+          doors: '', show: showTime, price: 'from $35', age: 'all ages',
+          category: 'performing_arts',
+          url: eventUrl,
+          lat: coords.lat,
+          lng: coords.lng,
+        });
+      }
+    } catch (err) {
+      console.error(`SF Ballet calendar fetch failed for ${month} ${year}:`, err.message);
     }
+  }
+  return events;
+}
+
+// ─── SF Symphony scraper ──────────────────────────────────────────────────────
+// Uses puppeteer-core to bypass Queue-it protection on sfsymphony.org.
+// Navigates the calendar month-by-month, extracting events from the DOM.
+function findChromePath() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try { if (existsSync(p)) return p; } catch {}
+  }
+  // Try 'which' as last resort
+  try { return execSync('which google-chrome || which chromium-browser || which chromium', { encoding: 'utf-8' }).trim(); } catch {}
+  return null;
+}
+
+async function scrapeSFSymphony() {
+  const chromePath = findChromePath();
+  if (!chromePath) {
+    console.warn('SF Symphony: Chrome not found, skipping scraper');
+    return [];
+  }
+
+  let puppeteer;
+  try {
+    puppeteer = await import('puppeteer-core');
+  } catch {
+    console.warn('SF Symphony: puppeteer-core not available, skipping');
+    return [];
+  }
+
+  const events = [];
+  const seen = new Set();
+  const coords = { lat: 37.7774, lng: -122.4196, address: '201 Van Ness Ave', city: 'SF' };
+  let browser;
+
+  try {
+    browser = await puppeteer.default.launch({
+      executablePath: chromePath,
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36');
+    await page.goto('https://www.sfsymphony.org/Calendar', { waitUntil: 'networkidle2', timeout: 45000 });
+
+    // Scrape current month + next 2 months
+    for (let m = 0; m < 3; m++) {
+      const monthData = await page.evaluate(() => {
+        const monthYear = document.querySelector('.ui-datepicker-title')?.textContent?.trim() || '';
+        const results = [];
+        document.querySelectorAll('.calendarDay.currentMonth').forEach(day => {
+          const dayNum = day.querySelector('.day-num')?.textContent?.trim();
+          day.querySelectorAll('.perfContainer').forEach(card => {
+            const titleEl = card.querySelector('.title-container a, h3');
+            const rawTitle = titleEl?.textContent?.trim() || '';
+            const venue = card.getAttribute('data-venue') || 'Davies Symphony Hall';
+            const link = card.querySelector('a.contentlink')?.href || '';
+            results.push({ dayNum, rawTitle, venue, link });
+          });
+        });
+        return { monthYear, results };
+      });
+
+      // Parse month/year from header (e.g. "April 2026")
+      const [monthName, yearStr] = (monthData.monthYear || '').split(/\s+/);
+      const year = parseInt(yearStr) || new Date().getFullYear();
+      const monthIdx = new Date(`${monthName} 1, 2000`).getMonth();
+
+      for (const { dayNum, rawTitle, venue, link } of monthData.results) {
+        // Title has time appended e.g. "Beethoven's Fifth7:30 pm"
+        const timeMatch = rawTitle.match(/(\d{1,2}:\d{2}\s*[ap]m)\s*$/i);
+        const show = timeMatch ? timeMatch[1].replace(/\s+/g, '').toLowerCase() : '';
+        const title = rawTitle.replace(/\d{1,2}:\d{2}\s*[ap]m\s*$/i, '').trim();
+        if (!title || !dayNum) continue;
+
+        const day = parseInt(dayNum);
+        const dateObj = new Date(year, monthIdx, day);
+        if (isNaN(dateObj.getTime())) continue;
+        const isoDate = dateObj.toISOString().split('T')[0];
+
+        // Skip past events
+        if (dateObj < new Date(new Date().toDateString())) continue;
+
+        const dedupKey = `${isoDate}-${show}-${title}`;
+        if (seen.has(dedupKey)) continue;
+        seen.add(dedupKey);
+
+        // Resolve venue to known coordinates
+        const venueName = (venue === 'undefined' || !venue) ? 'Davies Symphony Hall' : venue;
+
+        events.push({
+          id: `sfsymphony-${isoDate}-${show}-${title.slice(0,20).replace(/\W/g,'_')}`,
+          title,
+          artists: [],
+          venue: venueName,
+          address: coords.address,
+          city: coords.city,
+          date: isoDate,
+          doors: '', show, price: '', age: 'all ages',
+          category: 'performing_arts',
+          url: link || 'https://www.sfsymphony.org/Calendar',
+          lat: coords.lat,
+          lng: coords.lng,
+        });
+      }
+
+      // Navigate to next month (if not last iteration)
+      if (m < 2) {
+        try {
+          await page.click('button.calendar__next');
+          await new Promise(r => setTimeout(r, 3000));
+        } catch {
+          break; // no more months
+        }
+      }
+    }
+  } catch (err) {
+    console.error('SF Symphony scraper error:', err.message);
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+  return events;
+}
+
+// ─── BroadwaySF scraper ───────────────────────────────────────────────────────
+// Scrapes shows from broadwaysf.com (ATG/Ambassador Theatre Group) which covers
+// Orpheum Theatre, Golden Gate Theatre, and Curran Theatre.
+// Uses ATG's public bolt API for show info + GraphQL calendar API for performance dates.
+const BSF_VENUE_MAP = {
+  'orpheum-theatre':      'Orpheum Theatre',
+  'golden-gate-theatre':  'Golden Gate Theatre',
+  'curran-theater':       'Curran Theatre',
+};
+
+async function scrapeBroadwaySF() {
+  const events = [];
+  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
+
+  const CALENDAR_GQL = 'https://calendar-service.core.platform.atgtickets.com/';
+  const BOLT_API = 'https://boltapi-us-west.atgtickets.com/shows';
+  const GQL_QUERY = `query getShow($titleSlug: String, $venueSlug: String, $combined: Boolean, $ruleSetting: RuleSetting, $sourceId: String) {
+    getShow(titleSlug: $titleSlug, venueSlug: $venueSlug, combined: $combined, ruleSetting: $ruleSetting, sourceId: $sourceId) {
+      show { status dates { nextPerformanceDate lastPerformanceDate timeZone } performances { id dates { performanceDate } status } }
+    }
+  }`;
+
+  try {
+    // Step 1: discover show slugs from the homepage
+    const homeHtml = await fetch('https://www.broadwaysf.com/', { headers: { 'User-Agent': UA } }).then(r => r.text());
+    const linkMatches = [...homeHtml.matchAll(/\/events\/([^/]+)\/(orpheum-theatre|golden-gate-theatre|curran-theater)(?:\/|")/g)];
+    const showMap = new Map();
+    for (const m of linkMatches) {
+      const key = `${m[1]}/${m[2]}`;
+      if (!showMap.has(key)) showMap.set(key, { titleSlug: m[1], venueSlug: m[2] });
+    }
+
+    // Step 2: for each show, fetch title from bolt API + performances from calendar GraphQL
+    for (const [key, { titleSlug, venueSlug }] of showMap) {
+      try {
+        // Fetch show info (title, price, venue details)
+        const showInfo = await fetch(`${BOLT_API}/${titleSlug}/${venueSlug}`, {
+          headers: { 'Content-Type': 'application/json', 'User-Agent': UA }
+        }).then(r => r.json()).catch(() => null);
+
+        const title = showInfo?.title || titleSlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const venueName = BSF_VENUE_MAP[venueSlug] || showInfo?.venueInfo?.name || venueSlug;
+        const coords = ARTS_VENUE_COORDS[venueName] || {};
+        const priceMin = showInfo?.priceInfo?.min;
+        const price = priceMin ? `from $${priceMin}` : '';
+
+        // Fetch performances from GraphQL calendar
+        const calRes = await fetch(CALENDAR_GQL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Origin': 'https://www.broadwaysf.com' },
+          body: JSON.stringify({
+            operationName: 'getShow',
+            variables: { titleSlug, venueSlug, combined: false, ruleSetting: {}, sourceId: 'AV_US_WEST' },
+            query: GQL_QUERY,
+          }),
+        }).then(r => r.json()).catch(() => null);
+
+        const show = calRes?.data?.getShow?.show;
+        if (!show || !show.performances?.length) continue;
+
+        const tz = show.dates?.timeZone || 'America/Los_Angeles';
+
+        for (const perf of show.performances) {
+          if (perf.status !== 'OKAY') continue;
+          const utcDate = perf.dates?.performanceDate;
+          if (!utcDate) continue;
+
+          // Convert UTC to local date/time
+          const dt = new Date(utcDate);
+          const local = new Date(dt.toLocaleString('en-US', { timeZone: tz }));
+          const isoDate = `${local.getFullYear()}-${String(local.getMonth()+1).padStart(2,'0')}-${String(local.getDate()).padStart(2,'0')}`;
+          const hours = local.getHours();
+          const mins = local.getMinutes();
+          const ampm = hours >= 12 ? 'pm' : 'am';
+          const h12 = hours % 12 || 12;
+          const showTime = `${h12}:${String(mins).padStart(2,'0')}${ampm}`;
+
+          // Skip past events
+          if (dt < new Date()) continue;
+
+          const eventUrl = `https://www.broadwaysf.com/events/${titleSlug}/${venueSlug}/`;
+
+          events.push({
+            id: `bsf-${perf.id}`,
+            title,
+            artists: [],
+            venue: venueName,
+            address: coords.address || '',
+            city: coords.city || 'SF',
+            date: isoDate,
+            doors: '', show: showTime, price, age: 'all ages',
+            category: 'performing_arts',
+            url: eventUrl,
+            lat: coords.lat || 0,
+            lng: coords.lng || 0,
+          });
+        }
+      } catch (err) {
+        console.error(`BroadwaySF: failed for ${key}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('BroadwaySF scraper error:', err.message);
   }
   return events;
 }
@@ -1276,6 +1569,8 @@ const SOURCES = [
   { key: 'thelist',  label: 'TheList Concerts',  fn: scrapeTheList },
   { key: 'sfopera',  label: 'SF Opera',           fn: scrapeSFOpera },
   { key: 'sfballet', label: 'SF Ballet',          fn: scrapeSFBallet },
+  { key: 'sfsymphony', label: 'SF Symphony',      fn: scrapeSFSymphony },
+  { key: 'broadwaysf', label: 'BroadwaySF',       fn: scrapeBroadwaySF },
   { key: 'act',      label: 'ACT Theater',        fn: scrapeACT },
   { key: 'sfmoma',      label: 'SFMOMA',              fn: scrapeSFMOMA },
   { key: 'omca',        label: 'Oakland Museum',     fn: scrapeOaklandMuseum },
