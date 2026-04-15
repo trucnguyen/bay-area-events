@@ -301,10 +301,10 @@ async function searchSongkick(artist, venueSlug) {
 }
 
 async function enrichSongkickUrls(events) {
-  // Only enrich events that don't already have a venue-specific URL
-  const toEnrich = events.filter(ev =>
-    ev.venueSlug && ev.url === 'https://jon.luini.com/thelist/date.html'
-  );
+  // Try to find artist-specific permalinks for all TheList events.
+  // Events with only a generic venue calendar URL (from VENUE_URLS) often 404
+  // because /events isn't always a valid path. Songkick gives us direct links.
+  const toEnrich = events.filter(ev => ev.venueSlug);
   if (toEnrich.length === 0) return;
 
   console.log(`Enriching ${toEnrich.length} events with Songkick URLs...`);
@@ -313,7 +313,13 @@ async function enrichSongkickUrls(events) {
     await Promise.all(
       toEnrich.slice(i, i + BATCH).map(async ev => {
         const url = await searchSongkick(ev.title, ev.venueSlug);
-        if (url) ev.url = url;
+        if (url) {
+          ev.url = url;
+        } else if (ev.url === 'https://jon.luini.com/thelist/date.html') {
+          // No Songkick result and no venue URL — fall back to venue calendar page
+          const venueUrl = getVenueUrl(ev.venueSlug);
+          if (venueUrl) ev.url = venueUrl;
+        }
       })
     );
   }
@@ -450,7 +456,7 @@ async function scrapeTheList() {
         price,
         age,
         category: 'concerts',
-        url: getVenueUrl(venueSlug) || 'https://jon.luini.com/thelist/date.html',
+        url: 'https://jon.luini.com/thelist/date.html',
         lat: coords?.lat ?? null,
         lng: coords?.lng ?? null,
       });
